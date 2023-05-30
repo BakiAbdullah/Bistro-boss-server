@@ -1,6 +1,7 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
@@ -8,6 +9,30 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 // middleware
 app.use(cors());
 app.use(express.json());
+
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ message: "Unauthorized Access!! No token provided" });
+  }
+  // bearer token from client side
+  const token = authorization.split(" ")[1];
+  // // verify a token symmetric from Github page
+  // jwt.verify(token, "shhhhh(secret token)", function (err, decoded) {
+  //   console.log(decoded.foo); // bar
+  // });
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res
+        .status(401)
+        .send({ message: "Unauthorized Access!! Invalid token" });
+    }
+    req.decoded = decoded;
+  });
+  next();
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.4y0ssjd.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -35,13 +60,30 @@ async function run() {
     app.post("/jwt", (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "1hr"
+        expiresIn: "1hr",
       });
       res.send({ token });
     });
 
+    //! WARNING: use verifyJWT before using verifyAdmin
+    const verifyAdmin = async(req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      if(user?.role !== 'admin'){
+        return res.status(403).send({error: true,  message: "Forbidden message" });
+      }
+      next();
+    }
+
+    /** How to secure apis
+     * 0. Do not show secure links to those who should not see the links
+     * 1. use jwt token: verifyJWT
+     * 2. use verifyAmdin middleware
+     */
+
     // 8. Get all Users Api
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
@@ -55,6 +97,22 @@ async function run() {
         return res.send({ message: "user already exists" });
       }
       const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+
+    // 11. check that  if a user is admin or not
+    // Security layer 1: verifyJWT
+    // Security layer 2: email
+    // Security layer 2: check admin
+
+    app.get("/users/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      if (req.decoded.email !== email) {
+        res.send({ admin: false });
+      }
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      const result = { admin: user?.role == "admin" };
       res.send(result);
     });
 
@@ -85,11 +143,16 @@ async function run() {
     });
 
     // 4. Cart Collection Apis
-    app.get("/carts", async (req, res) => {
+    app.get("/carts", verifyJWT, async (req, res) => {
       const email = req.query.email;
       if (!email) {
         res.send([]);
       }
+      const decodedEmail = req.decoded.email;
+      if (email !== decodedEmail) {
+        return res.status.send({ error: true, message: "Forbidden access" });
+      }
+
       const query = { email: email };
       const result = await cartCollection.find(query).toArray();
       res.send(result);
