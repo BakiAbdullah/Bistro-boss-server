@@ -130,11 +130,28 @@ async function run() {
       res.send(result);
     });
 
-    // 1. GET API For the menu items
+    // 1. GET API For the menu items ========================>
     app.get("/menu", async (req, res) => {
       const result = await menuCollection.find().toArray();
       res.send(result);
     });
+
+    // POST API FOR MENU ITEMS
+    app.post('/menu', verifyJWT, verifyAdmin, async (req, res) => {
+      const newItem = req.body;
+      const result = await menuCollection.insertOne(newItem)
+      res.send(result);
+    })
+
+    // DELETE API FOR MENU ITEMS
+    app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const result = await menuCollection.deleteOne(query);
+      res.send(result);
+    })
+
+    //========================================================>
 
     // 2. GET API For all the reviews data
     app.get("/reviews", async (req, res) => {
@@ -148,7 +165,7 @@ async function run() {
       if (!email) {
         res.send([]);
       }
-      const decodedEmail = req.decoded.email;
+      const decodedEmail = req.decoded?.email;
       if (email !== decodedEmail) {
         return res.status.send({ error: true, message: "Forbidden access" });
       }
