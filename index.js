@@ -3,6 +3,8 @@ const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+// This is your test secret API key.
+const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
@@ -19,7 +21,7 @@ const verifyJWT = (req, res, next) => {
   }
   // bearer token from client side
   const token = authorization.split(" ")[1];
-  // // verify a token symmetric from Github page
+  // verify a token symmetric from Github page
   // jwt.verify(token, "shhhhh(secret token)", function (err, decoded) {
   //   console.log(decoded.foo); // bar
   // });
@@ -60,7 +62,7 @@ async function run() {
     app.post("/jwt", (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "1hr",
+        expiresIn: "2hr",
       });
       res.send({ token });
     });
@@ -190,6 +192,25 @@ async function run() {
       const result = await cartCollection.deleteOne(query);
       res.send(result);
     });
+
+    // ======= Stripe Payment APIs ========>
+    app.post('/create-payment-intent', verifyJWT, async(req, res)=> {
+      const { price } = req.body;
+      const amount = price * 100;
+      console.log(price, amount);
+      // Create a PaymentIntent with the order amount and currency
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      })
+    })
+
+
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
