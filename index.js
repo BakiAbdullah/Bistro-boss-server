@@ -57,6 +57,7 @@ async function run() {
     const reviewCollection = client.db("bistroDb").collection("reviews");
     const cartCollection = client.db("bistroDb").collection("carts");
     const usersCollection = client.db("bistroDb").collection("users");
+    const paymentCollection = client.db("bistroDb").collection("payments");
 
     // 10. JWT Token API
     app.post("/jwt", (req, res) => {
@@ -68,15 +69,17 @@ async function run() {
     });
 
     //! WARNING: use verifyJWT before using verifyAdmin
-    const verifyAdmin = async(req, res, next) => {
+    const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
       const query = { email: email };
       const user = await usersCollection.findOne(query);
-      if(user?.role !== 'admin'){
-        return res.status(403).send({error: true,  message: "Forbidden message" });
+      if (user?.role !== "admin") {
+        return res
+          .status(403)
+          .send({ error: true, message: "Forbidden message" });
       }
       next();
-    }
+    };
 
     /** How to secure apis
      * 0. Do not show secure links to those who should not see the links
@@ -109,7 +112,7 @@ async function run() {
 
     app.get("/users/admin/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
-      if (req.decoded.email !== email) {
+      if (req.decoded?.email !== email) {
         res.send({ admin: false });
       }
       const query = { email: email };
@@ -139,19 +142,19 @@ async function run() {
     });
 
     // POST API FOR MENU ITEMS
-    app.post('/menu', verifyJWT, verifyAdmin, async (req, res) => {
+    app.post("/menu", verifyJWT, verifyAdmin, async (req, res) => {
       const newItem = req.body;
-      const result = await menuCollection.insertOne(newItem)
+      const result = await menuCollection.insertOne(newItem);
       res.send(result);
-    })
+    });
 
     // DELETE API FOR MENU ITEMS
-    app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
+    app.delete("/menu/:id", verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) };
       const result = await menuCollection.deleteOne(query);
       res.send(result);
-    })
+    });
 
     //========================================================>
 
@@ -194,10 +197,9 @@ async function run() {
     });
 
     // ======= Stripe Payment APIs ========>
-    app.post('/create-payment-intent', verifyJWT, async(req, res)=> {
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
       const { price } = req.body;
       const amount = price * 100;
-      console.log(price, amount);
       // Create a PaymentIntent with the order amount and currency
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount,
@@ -205,12 +207,43 @@ async function run() {
         payment_method_types: ["card"],
       });
       res.send({
-        clientSecret: paymentIntent.client_secret
-      })
-    })
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
 
+    // Payment Related api
+    app.post("/payments", verifyJWT, async (req, res) => {
+      const payment = req.body;
+      const insertResult = paymentCollection.insertOne(payment);
+      const query = {
+        _id: { $in: payment.cartItems.map((id) => new ObjectId(id)) },
+      };
+      const deleteResult = await cartCollection.deleteMany(query);
+      res.send({ insertResult, deleteResult });
+    });
 
+    // Admin Dashboard API
+    app.get("/admin-stats", verifyJWT, verifyAdmin, async (req, res) => {
+      const users = await usersCollection.estimatedDocumentCount();
+      const products = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
 
+      // Best way to get sum of the price field is to use group and sum operator
+      //  paymentCollection.aggregate([
+      //    {
+      //      $group: {
+      //        _id: null,
+      //        total: { $sum: "$price" },
+      //      },
+      //    },
+      //  ]).toArray()
+
+      // Another way to get the sum of the price field USING  Array Reduce =>
+      const payments = await paymentCollection.find().toArray();
+      const revenue = payments.reduce((sum, payment) => sum + payment.price, 0);
+
+      res.send({ users, products, orders, revenue });
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
